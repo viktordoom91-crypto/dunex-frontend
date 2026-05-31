@@ -265,7 +265,7 @@ export default function DunexLandingPage() {
               </button>
 
               <a
-                href="/dunex-markets.apk"
+                href="/Dunex-markets v2.0.apk"
                 download
                 className="group relative flex items-center gap-4 bg-[#0e0e1a] border border-gray-800 p-4 rounded-2xl hover:border-cyan-500/60 hover:bg-[#131323] transition-all w-full sm:w-auto shadow-lg"
               >
