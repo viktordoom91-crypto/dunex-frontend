@@ -7,7 +7,7 @@ import {
   Wallet, Activity, ShieldCheck, FileImage, ShieldAlert,
   Trash2, ArrowDownToLine, ArrowUpFromLine, TrendingUp, Gift,
   Users, MapPin, Phone, Hash, RefreshCw, AlertTriangle,
-  Coins, Settings2
+  Coins, Settings2, Replace
 } from 'lucide-react';
 import { apiClient, API_URL } from '../../../../lib/apiClient';
 
@@ -19,6 +19,7 @@ interface CryptoHolding {
 }
 type CryptoAction = 'add' | 'subtract' | 'set';
 
+// Fallback colors for coins if images fail
 const COIN_COLORS: Record<string, string> = {
   BTC: '#f7931a', ETH: '#627eea', SOL: '#9945ff', BNB: '#f3ba2f',
   XRP: '#00aae4', ADA: '#0033ad', USDT: '#26a17b', USDC: '#2775ca',
@@ -26,31 +27,23 @@ const COIN_COLORS: Record<string, string> = {
 };
 const coinColor = (s: string) => COIN_COLORS[s] ?? '#64748b';
 
-function CoinBadge({ symbol }: { symbol: string }) {
+function CoinBadge({ symbol, image }: { symbol: string, image?: string }) {
   const [failed, setFailed] = useState(false);
-  const url = `https://raw.githubusercontent.com/spothq/cryptocurrency-icons/master/128/color/${symbol.toLowerCase()}.png`;
+  const url = image || `https://raw.githubusercontent.com/spothq/cryptocurrency-icons/master/128/color/${symbol.toLowerCase()}.png`;
+  
   return failed ? (
-    <div className="w-8 h-8 rounded-full flex items-center justify-center text-[10px] font-black flex-shrink-0 shadow-[inset_0_0_10px_rgba(255,255,255,0.1)]"
+    <div className="w-8 h-8 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0"
       style={{ backgroundColor: coinColor(symbol) + '22', color: coinColor(symbol), border: `1px solid ${coinColor(symbol)}55` }}>
       {symbol.slice(0, 2)}
     </div>
   ) : (
-    <img src={url} alt={symbol} className="w-8 h-8 rounded-full object-cover flex-shrink-0 shadow-lg"
+    <img src={url} alt={symbol} className="w-8 h-8 rounded-full object-cover flex-shrink-0"
       onError={() => setFailed(true)} />
   );
 }
 
-const COMMON_COINS = [
-  { symbol: 'BTC', name: 'Bitcoin' }, { symbol: 'ETH', name: 'Ethereum' },
-  { symbol: 'USDT', name: 'Tether' }, { symbol: 'USDC', name: 'USD Coin' },
-  { symbol: 'BNB', name: 'BNB' }, { symbol: 'SOL', name: 'Solana' },
-  { symbol: 'XRP', name: 'XRP' }, { symbol: 'ADA', name: 'Cardano' },
-  { symbol: 'DOGE', name: 'Dogecoin' }, { symbol: 'LTC', name: 'Litecoin' },
-  { symbol: 'AVAX', name: 'Avalanche' }, { symbol: 'MATIC', name: 'Polygon' },
-];
-
 // ─────────────────────────────────────────────────────────────────────────────
-// Crypto Sub-Wallet Panel
+// User Crypto Wallet Panel
 // ─────────────────────────────────────────────────────────────────────────────
 function CryptoSubWalletPanel({ userId, userName }: { userId: string; userName: string }) {
   const [holdings, setHoldings] = useState<CryptoHolding[]>([]);
@@ -58,12 +51,34 @@ function CryptoSubWalletPanel({ userId, userName }: { userId: string; userName: 
   const [modalOpen, setModalOpen] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  
+  // 🚨 Live Market Data for Admin Panel
+  const [marketCoins, setMarketCoins] = useState<any[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
+
   const [form, setForm] = useState({
     symbol: '', name: '', quantity: '', avg_buy_price: '',
     action: 'add' as CryptoAction, note: '',
     useCustomSymbol: false, customSymbol: '', customName: '',
   });
   const [formError, setFormError] = useState('');
+
+  // Fetch top 200 coins directly from CoinGecko so Admin can add anything
+  useEffect(() => {
+    fetch('https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=200&page=1')
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data)) {
+          setMarketCoins(data.map((c: any) => ({
+            symbol: c.symbol.toUpperCase(),
+            name: c.name,
+            price: c.current_price,
+            image: c.image
+          })));
+        }
+      })
+      .catch(() => console.error("Could not fetch live market data"));
+  }, []);
 
   const fetchHoldings = useCallback(async () => {
     setLoading(true);
@@ -81,6 +96,7 @@ function CryptoSubWalletPanel({ userId, userName }: { userId: string; userName: 
       quantity: '', avg_buy_price: '', action: prefill?.action ?? 'add',
       note: '', useCustomSymbol: false, customSymbol: '', customName: '' });
     setFormError('');
+    setSearchQuery('');
     setModalOpen(true);
   };
 
@@ -91,10 +107,10 @@ function CryptoSubWalletPanel({ userId, userName }: { userId: string; userName: 
     setFormError('');
     const qty   = parseFloat(form.quantity);
     const price = parseFloat(form.avg_buy_price);
-    if (!resolvedSymbol)          return setFormError('Select or enter a coin symbol.');
-    if (!resolvedName)            return setFormError('Coin name is required.');
-    if (isNaN(qty)   || qty   <= 0) return setFormError('Enter a valid quantity.');
-    if (isNaN(price) || price <= 0) return setFormError('Enter a valid price per coin.');
+    if (!resolvedSymbol)          return setFormError('Please select a coin.');
+    if (!resolvedName)            return setFormError('Coin name is missing.');
+    if (isNaN(qty)   || qty   <= 0) return setFormError('Please enter a valid amount.');
+    if (isNaN(price) || price <= 0) return setFormError('Please enter the current price.');
     setIsProcessing(true);
     try {
       await apiClient.post(`/admin/users/${userId}/crypto-holdings`, {
@@ -105,7 +121,7 @@ function CryptoSubWalletPanel({ userId, userName }: { userId: string; userName: 
       setModalOpen(false);
       fetchHoldings();
     } catch (e: any) {
-      setFormError(e.response?.data?.detail ?? 'Operation failed.');
+      setFormError(e.response?.data?.detail ?? 'Failed to save.');
     } finally { setIsProcessing(false); }
   };
 
@@ -120,81 +136,80 @@ function CryptoSubWalletPanel({ userId, userName }: { userId: string; userName: 
   };
 
   const actionColors: Record<CryptoAction, string> = {
-    add:      'bg-emerald-500/10 text-emerald-400 border-emerald-500/50 shadow-[0_0_15px_rgba(16,185,129,0.2)]',
-    subtract: 'bg-rose-500/10 text-rose-400 border-rose-500/50 shadow-[0_0_15px_rgba(244,63,94,0.2)]',
-    set:      'bg-blue-500/10 text-blue-400 border-blue-500/50 shadow-[0_0_15px_rgba(59,130,246,0.2)]',
+    add:      'bg-emerald-500/10 text-emerald-400 border-emerald-500/50',
+    subtract: 'bg-rose-500/10 text-rose-400 border-rose-500/50',
+    set:      'bg-blue-500/10 text-blue-400 border-blue-500/50',
   };
 
-  const usdPreview = parseFloat(form.quantity) > 0 && parseFloat(form.avg_buy_price) > 0
-    ? (parseFloat(form.quantity) * parseFloat(form.avg_buy_price)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-    : null;
+  const displayedCoins = marketCoins.filter(c => 
+    c.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
+    c.symbol.toLowerCase().includes(searchQuery.toLowerCase())
+  ).slice(0, 8); // Show top 8 matches to save space on mobile
 
   return (
-    <div className="bg-[#12121A]/80 backdrop-blur-2xl border border-white/5 rounded-[2rem] p-6 shadow-2xl mb-8 transition-colors">
-      {/* Panel header */}
-      <div className="flex justify-between items-center mb-6">
-        <h2 className="text-xl font-bold text-white flex items-center gap-3 tracking-tight">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500/20 to-orange-500/20 border border-amber-500/30 flex items-center justify-center shadow-[0_0_20px_rgba(245,158,11,0.15)]">
+    <div className="bg-[#12121A] border border-white/10 rounded-2xl md:rounded-[2rem] p-4 md:p-6 mb-8">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+        <h2 className="text-lg md:text-xl font-bold text-white flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center">
             <Coins size={20} className="text-amber-400" />
           </div>
-          Crypto Sub-Wallet
+          User Crypto Wallet
         </h2>
-        <div className="flex items-center gap-3">
-          <button onClick={fetchHoldings} className="p-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition-all border border-white/5" title="Refresh">
+        <div className="flex items-center gap-3 w-full sm:w-auto">
+          <button onClick={fetchHoldings} className="p-2.5 rounded-xl bg-white/5 text-gray-400 hover:text-white border border-white/5">
             <RefreshCw size={16} />
           </button>
-          <button onClick={() => openModal()} className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black font-black uppercase tracking-wide rounded-xl transition-all text-xs shadow-[0_0_20px_rgba(245,158,11,0.3)] hover:scale-105">
-            <PlusCircle size={15} /> Credit Coins
+          <button onClick={() => openModal()} className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-black font-bold rounded-xl text-sm transition-all">
+            <PlusCircle size={16} /> Add Coin
           </button>
         </div>
       </div>
 
-      {/* Holdings table */}
+      {/* Holdings List */}
       {loading ? (
-        <div className="flex items-center justify-center py-12">
-          <div className="w-10 h-10 border-4 border-amber-500/20 border-t-amber-500 rounded-full animate-spin shadow-[0_0_15px_rgba(245,158,11,0.5)]" />
+        <div className="flex items-center justify-center py-10">
+          <div className="w-8 h-8 border-4 border-amber-500/20 border-t-amber-500 rounded-full animate-spin" />
         </div>
       ) : holdings.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-16 border border-dashed border-white/10 rounded-2xl bg-[#05050A]">
-          <Coins size={48} className="text-gray-700 mb-4 drop-shadow-xl" />
-          <p className="text-gray-400 font-bold tracking-wide">NO CRYPTO HOLDINGS</p>
-          <p className="text-gray-600 text-xs mt-2 text-center max-w-sm">Click "Credit Coins" to manually allocate liquidity to this user's sub-wallet.</p>
+        <div className="flex flex-col items-center justify-center py-12 border border-dashed border-white/10 rounded-xl bg-[#05050A]">
+          <Coins size={40} className="text-gray-600 mb-3" />
+          <p className="text-gray-400 font-bold">Wallet is Empty</p>
+          <p className="text-gray-500 text-xs mt-1 text-center px-4">Click "Add Coin" to give this user cryptocurrency.</p>
         </div>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-white/5 bg-[#05050A]">
-          <table className="w-full text-left border-collapse whitespace-nowrap">
-            <thead className="bg-white/[0.02] text-[10px] uppercase tracking-widest text-gray-500 font-black border-b border-white/5">
+          <table className="w-full text-left border-collapse whitespace-nowrap min-w-[600px]">
+            <thead className="bg-white/5 text-xs text-gray-400 border-b border-white/5">
               <tr>
-                <th className="p-4 pl-5">Asset</th>
-                <th className="p-4">Quantity</th>
-                <th className="p-4">Avg Entry Price</th>
-                <th className="p-4">Market Value</th>
-                <th className="p-4">Last Sync</th>
-                <th className="p-4 text-right pr-5">Admin Controls</th>
+                <th className="p-3 pl-4">Coin</th>
+                <th className="p-3">Amount</th>
+                <th className="p-3">Entry Price</th>
+                <th className="p-3">Value</th>
+                <th className="p-3 text-right pr-4">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-white/5">
               {holdings.map(h => (
-                <tr key={h.id} className="hover:bg-white/[0.03] transition-all group hover:scale-[1.01]">
-                  <td className="p-4 pl-5">
+                <tr key={h.id} className="hover:bg-white/5 transition-all">
+                  <td className="p-3 pl-4">
                     <div className="flex items-center gap-3">
                       <CoinBadge symbol={h.symbol} />
                       <div>
-                        <div className="font-black text-white text-sm tracking-wide">{h.symbol}</div>
-                        <div className="text-gray-500 text-[10px] uppercase font-bold">{h.name}</div>
+                        <div className="font-bold text-white text-sm">{h.symbol}</div>
+                        <div className="text-gray-500 text-xs">{h.name}</div>
                       </div>
                     </div>
                   </td>
-                  <td className="p-4 font-mono text-white font-medium">{h.quantity.toFixed(8)}</td>
-                  <td className="p-4 font-mono text-gray-400 text-xs">${h.avg_buy_price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}</td>
-                  <td className="p-4 font-mono text-amber-400 font-black text-sm drop-shadow-md">${(h.quantity * h.avg_buy_price).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                  <td className="p-4 text-gray-600 text-[10px] uppercase font-bold tracking-wider">{h.updated_at ? new Date(h.updated_at).toLocaleString() : '—'}</td>
-                  <td className="p-4 pr-5 text-right">
-                    <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-                      <button onClick={() => openModal({ symbol: h.symbol, name: h.name, action: 'add' })} className="px-3 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] uppercase tracking-wide font-black hover:bg-emerald-500/20 hover:border-emerald-500/50 transition-all">+ Add</button>
-                      <button onClick={() => openModal({ symbol: h.symbol, name: h.name, action: 'subtract' })} className="px-3 py-1.5 rounded-lg bg-rose-500/10 text-rose-400 border border-rose-500/20 text-[10px] uppercase tracking-wide font-black hover:bg-rose-500/20 hover:border-rose-500/50 transition-all">− Sub</button>
-                      <button onClick={() => openModal({ symbol: h.symbol, name: h.name, action: 'set' })} className="px-3 py-1.5 rounded-lg bg-blue-500/10 text-blue-400 border border-blue-500/20 text-[10px] uppercase tracking-wide font-black hover:bg-blue-500/20 hover:border-blue-500/50 transition-all"><Settings2 size={12} className="inline mr-1" /> Set</button>
-                      <button onClick={() => setDeleteConfirm(h.symbol)} className="p-1.5 rounded-lg bg-white/5 text-gray-400 border border-white/10 hover:bg-rose-500/20 hover:text-rose-400 hover:border-rose-500/30 transition-all"><Trash2 size={14} /></button>
+                  <td className="p-3 text-white text-sm">{h.quantity.toFixed(6)}</td>
+                  <td className="p-3 text-gray-400 text-sm">${h.avg_buy_price.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                  <td className="p-3 text-amber-400 font-bold text-sm">${(h.quantity * h.avg_buy_price).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                  <td className="p-3 pr-4 text-right">
+                    <div className="flex items-center justify-end gap-2">
+                      <button onClick={() => openModal({ symbol: h.symbol, name: h.name, action: 'add' })} className="px-3 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-xs font-bold">+ Add</button>
+                      <button onClick={() => openModal({ symbol: h.symbol, name: h.name, action: 'subtract' })} className="px-3 py-1.5 rounded-lg bg-rose-500/10 text-rose-400 border border-rose-500/20 text-xs font-bold">− Sub</button>
+                      <button onClick={() => openModal({ symbol: h.symbol, name: h.name, action: 'set' })} className="px-3 py-1.5 rounded-lg bg-blue-500/10 text-blue-400 border border-blue-500/20 text-xs font-bold">Set</button>
+                      <button onClick={() => setDeleteConfirm(h.symbol)} className="p-1.5 rounded-lg bg-white/5 text-gray-400 hover:text-rose-400 transition-colors"><Trash2 size={14} /></button>
                     </div>
                   </td>
                 </tr>
@@ -204,157 +219,93 @@ function CryptoSubWalletPanel({ userId, userName }: { userId: string; userName: 
         </div>
       )}
 
-      {/* ── HIGH-PRIORITY Z-INDEX MODALS ── */}
-      
-      {/* 1. CREDIT / ADJUST MODAL */}
+      {/* ── ADD / EDIT COIN MODAL ── */}
       {modalOpen && (
-        <div className="fixed inset-0 z-[9999] bg-black/80 backdrop-blur-md flex items-end sm:items-center justify-center p-0 sm:p-4">
-          <div className="bg-[#0A0A0F] border border-white/10 rounded-t-3xl sm:rounded-[2rem] w-full sm:max-w-lg shadow-[0_0_50px_rgba(0,0,0,0.5)] flex flex-col max-h-[95dvh] sm:max-h-[90vh]">
-            
-            {/* Sticky Header */}
-            <div className="flex items-center gap-4 p-6 border-b border-white/5 shrink-0 bg-[#0A0A0F] rounded-t-[2rem]">
-              <div className="w-12 h-12 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center shadow-[0_0_15px_rgba(245,158,11,0.2)]">
-                <Coins size={24} className="text-amber-400" />
-              </div>
-              <div className="flex-1">
-                <h2 className="text-xl font-black text-white uppercase tracking-wider">Adjust Ledger</h2>
-                <p className="text-gray-400 text-xs tracking-wide">Target Vault: <span className="text-amber-400 font-bold">{userName}</span></p>
-              </div>
-              <button onClick={() => setModalOpen(false)} className="text-gray-500 hover:text-white bg-white/5 p-2.5 rounded-full transition-colors border border-white/5">
-                <X size={20} />
+        <div className="fixed inset-0 z-[9999] bg-black/80 flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <div className="bg-[#0A0A0F] border border-white/10 rounded-t-2xl sm:rounded-2xl w-full sm:max-w-md flex flex-col max-h-[90vh]">
+            <div className="flex justify-between items-center p-4 border-b border-white/10">
+              <h2 className="text-lg font-bold text-white">Update Coin Balance</h2>
+              <button onClick={() => setModalOpen(false)} className="text-gray-400 hover:text-white bg-white/5 p-2 rounded-full">
+                <X size={18} />
               </button>
             </div>
 
-            {/* Scrollable Body */}
-            <div className="overflow-y-auto flex-1 p-6 space-y-6">
-              {/* Operation */}
-              <div>
-                <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-3">Operation Mode</label>
-                <div className="grid grid-cols-3 gap-3">
-                  {(['add', 'subtract', 'set'] as CryptoAction[]).map(a => (
-                    <button key={a} onClick={() => setForm(f => ({ ...f, action: a }))}
-                      className={`py-3.5 rounded-xl text-xs font-black uppercase tracking-wider border transition-all ${form.action === a ? actionColors[a] : 'bg-[#12121A] text-gray-500 border-white/5 hover:bg-white/5'}`}>
-                      {a === 'add' ? '+ Credit' : a === 'subtract' ? '− Deduct' : '✎ Force Set'}
-                    </button>
-                  ))}
-                </div>
-                <p className="text-gray-500 text-[10px] mt-3 uppercase tracking-wider font-bold">
-                  {form.action === 'add'      && 'Calculates new weighted average cost basis automatically.'}
-                  {form.action === 'subtract' && 'Deducts strict quantity. Fails if insufficient liquidity.'}
-                  {form.action === 'set'      && 'Absolute overwrite of existing database row.'}
-                </p>
+            <div className="overflow-y-auto p-5 space-y-5">
+              {/* Action Buttons */}
+              <div className="flex gap-2">
+                {(['add', 'subtract', 'set'] as CryptoAction[]).map(a => (
+                  <button key={a} onClick={() => setForm(f => ({ ...f, action: a }))}
+                    className={`flex-1 py-2 rounded-xl text-xs font-bold capitalize transition-all ${form.action === a ? actionColors[a] : 'bg-[#12121A] text-gray-400 border border-white/10'}`}>
+                    {a === 'add' ? 'Add' : a === 'subtract' ? 'Remove' : 'Set Exact'}
+                  </button>
+                ))}
               </div>
 
-              {/* Coin Selector */}
+              {/* Live Coin Search */}
               <div>
-                <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-3">Select Asset</label>
+                <label className="block text-xs font-bold text-gray-400 mb-2">Search & Select Coin</label>
                 {!form.useCustomSymbol ? (
                   <>
-                    <div className="grid grid-cols-4 gap-3 mb-4">
-                      {COMMON_COINS.map(c => (
-                        <button key={c.symbol} onClick={() => setForm(f => ({ ...f, symbol: c.symbol, name: c.name }))}
-                          className={`flex flex-col items-center gap-2 p-3 rounded-xl border transition-all ${form.symbol === c.symbol ? 'border-amber-500/50 bg-amber-500/10 text-amber-400 shadow-[0_0_15px_rgba(245,158,11,0.15)]' : 'border-white/5 bg-[#12121A] text-gray-500 hover:border-white/10 hover:text-gray-300'}`}>
-                          <CoinBadge symbol={c.symbol} />
-                          <span className="text-[10px] font-black">{c.symbol}</span>
+                    <input type="text" placeholder="Search BTC, ETH, SOL..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
+                      className="w-full bg-[#12121A] border border-white/10 text-white rounded-xl p-3 mb-3 outline-none focus:border-amber-500 text-sm" />
+                    
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
+                      {displayedCoins.map(c => (
+                        <button key={c.symbol} onClick={() => setForm(f => ({ ...f, symbol: c.symbol, name: c.name, avg_buy_price: String(c.price || ''), useCustomSymbol: false }))}
+                          className={`flex flex-col items-center gap-1 p-2 rounded-xl border transition-all ${form.symbol === c.symbol ? 'border-amber-500 bg-amber-500/10 text-amber-400' : 'border-white/10 bg-[#12121A] text-gray-400'}`}>
+                          <CoinBadge symbol={c.symbol} image={c.image} />
+                          <span className="text-xs font-bold">{c.symbol}</span>
                         </button>
                       ))}
                     </div>
-                    <button onClick={() => setForm(f => ({ ...f, useCustomSymbol: true, symbol: '', name: '' }))} className="text-xs text-amber-500 hover:text-amber-400 font-bold uppercase tracking-wider">
-                      + Enter Custom Contract
+                    <button onClick={() => setForm(f => ({ ...f, useCustomSymbol: true, symbol: '', name: '' }))} className="text-xs text-amber-500 font-bold w-full text-left">
+                      + Or type custom coin details
                     </button>
                   </>
                 ) : (
-                  <div className="space-y-4 bg-[#12121A] p-5 rounded-2xl border border-white/5">
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-gray-500 text-[10px] font-black uppercase tracking-widest mb-2">Symbol</label>
-                        <input type="text" placeholder="XMR" value={form.customSymbol}
-                          onChange={e => setForm(f => ({ ...f, customSymbol: e.target.value.toUpperCase() }))}
-                          className="w-full bg-[#05050A] border border-white/10 text-white rounded-xl p-3.5 outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500/50 font-mono font-bold transition-all placeholder:text-gray-700" />
-                      </div>
-                      <div>
-                        <label className="block text-gray-500 text-[10px] font-black uppercase tracking-widest mb-2">Network Name</label>
-                        <input type="text" placeholder="Monero" value={form.customName}
-                          onChange={e => setForm(f => ({ ...f, customName: e.target.value }))}
-                          className="w-full bg-[#05050A] border border-white/10 text-white rounded-xl p-3.5 outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500/50 font-bold transition-all placeholder:text-gray-700" />
-                      </div>
-                    </div>
-                    <button onClick={() => setForm(f => ({ ...f, useCustomSymbol: false }))} className="text-[10px] text-gray-500 hover:text-white font-bold uppercase tracking-wider">← Return to presets</button>
+                  <div className="flex gap-2">
+                    <input type="text" placeholder="Symbol (BTC)" value={form.customSymbol} onChange={e => setForm(f => ({ ...f, customSymbol: e.target.value.toUpperCase() }))} className="flex-1 bg-[#12121A] border border-white/10 text-white rounded-xl p-3 text-sm outline-none focus:border-amber-500" />
+                    <input type="text" placeholder="Name (Bitcoin)" value={form.customName} onChange={e => setForm(f => ({ ...f, customName: e.target.value }))} className="flex-[2] bg-[#12121A] border border-white/10 text-white rounded-xl p-3 text-sm outline-none focus:border-amber-500" />
+                    <button onClick={() => setForm(f => ({ ...f, useCustomSymbol: false }))} className="p-3 text-gray-400 hover:text-white"><X size={16} /></button>
                   </div>
                 )}
               </div>
 
-              {/* Quantity */}
-              <div>
-                <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-3">Volume (Coins)</label>
-                <input type="number" inputMode="decimal" placeholder="0.00000000" step="any"
-                  value={form.quantity} onChange={e => setForm(f => ({ ...f, quantity: e.target.value }))}
-                  className="w-full bg-[#12121A] border border-white/10 text-white rounded-xl p-4 outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500/50 font-mono text-xl font-bold transition-all placeholder:text-gray-700" />
-              </div>
-
-              {/* Price */}
-              <div>
-                <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-3">Execution Price (USD)</label>
-                <div className="relative">
-                  <span className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-500 font-mono text-xl select-none font-black">$</span>
-                  <input type="number" inputMode="decimal" placeholder="0.00" step="any"
-                    value={form.avg_buy_price} onChange={e => setForm(f => ({ ...f, avg_buy_price: e.target.value }))}
-                    className="w-full bg-[#12121A] border-2 border-white/10 focus:border-amber-500 text-amber-400 rounded-xl p-4 pl-10 outline-none focus:ring-1 focus:ring-amber-500/50 font-mono text-xl font-black transition-all placeholder:text-gray-700" />
+              {/* Number Inputs */}
+              <div className="flex gap-3">
+                <div className="flex-1">
+                  <label className="block text-xs font-bold text-gray-400 mb-2">Amount</label>
+                  <input type="number" placeholder="0.00" value={form.quantity} onChange={e => setForm(f => ({ ...f, quantity: e.target.value }))}
+                    className="w-full bg-[#12121A] border border-white/10 text-white rounded-xl p-3 text-sm outline-none focus:border-amber-500" />
+                </div>
+                <div className="flex-1">
+                  <label className="block text-xs font-bold text-gray-400 mb-2">Price (USD)</label>
+                  <input type="number" placeholder="0.00" value={form.avg_buy_price} onChange={e => setForm(f => ({ ...f, avg_buy_price: e.target.value }))}
+                    className="w-full bg-[#12121A] border border-white/10 text-white rounded-xl p-3 text-sm outline-none focus:border-amber-500" />
                 </div>
               </div>
 
-              {/* Preview */}
-              {usdPreview && (
-                <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-5 flex items-center justify-between shadow-[inset_0_0_20px_rgba(245,158,11,0.05)]">
-                  <span className="text-amber-500 text-[10px] font-black uppercase tracking-widest">Total Valuation</span>
-                  <span className="text-amber-400 font-mono font-black text-2xl drop-shadow-md">${usdPreview}</span>
-                </div>
-              )}
-
-              {/* Note */}
-              <div>
-                <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-3">Ledger Note (Optional)</label>
-                <input type="text" placeholder="Internal audit reference..."
-                  value={form.note} onChange={e => setForm(f => ({ ...f, note: e.target.value }))}
-                  className="w-full bg-[#12121A] border border-white/10 text-white rounded-xl p-4 outline-none focus:border-amber-500 font-medium transition-all placeholder:text-gray-700 text-sm" />
-              </div>
-
-              {formError && (
-                <div className="flex items-center gap-3 text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-xl px-5 py-4 text-xs font-bold uppercase tracking-wide">
-                  <AlertTriangle size={18} className="flex-shrink-0" /> {formError}
-                </div>
-              )}
+              {formError && <div className="text-rose-400 text-xs font-bold bg-rose-500/10 p-3 rounded-lg">{formError}</div>}
             </div>
 
-            {/* Sticky Footer */}
-            <div className="p-6 bg-[#0A0A0F] border-t border-white/5 shrink-0 rounded-b-[2rem]">
-              <button onClick={handleSubmit} disabled={isProcessing}
-                className={`w-full py-4.5 rounded-xl font-black uppercase tracking-widest text-xs transition-all disabled:opacity-50 ${
-                  form.action === 'add'      ? 'bg-emerald-500 hover:bg-emerald-400 text-black shadow-[0_0_20px_rgba(16,185,129,0.4)] hover:scale-[1.02]' :
-                  form.action === 'subtract' ? 'bg-rose-500 hover:bg-rose-400 text-white shadow-[0_0_20px_rgba(244,63,94,0.4)] hover:scale-[1.02]' :
-                                               'bg-blue-500 hover:bg-blue-400 text-white shadow-[0_0_20px_rgba(59,130,246,0.4)] hover:scale-[1.02]'
-                }`}>
-                {isProcessing ? 'Encrypting Ledger...' : `Confirm ${form.action === 'add' ? 'Credit' : form.action === 'subtract' ? 'Deduction' : 'Overwrite'}`}
+            <div className="p-4 border-t border-white/10">
+              <button onClick={handleSubmit} disabled={isProcessing} className="w-full py-3 bg-amber-500 hover:bg-amber-400 text-black rounded-xl font-bold text-sm">
+                {isProcessing ? 'Processing...' : 'Save Changes'}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* 2. DELETE CONFIRM MODAL */}
+      {/* Delete Confirmation */}
       {deleteConfirm && (
-        <div className="fixed inset-0 z-[9999] bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-[#0A0A0F] border border-white/10 p-8 rounded-[2rem] w-full max-w-sm shadow-[0_0_50px_rgba(244,63,94,0.15)] text-center">
-            <div className="w-16 h-16 rounded-full bg-rose-500/10 border border-rose-500/30 flex items-center justify-center mx-auto mb-6 shadow-[0_0_20px_rgba(244,63,94,0.2)]">
-              <AlertTriangle size={32} className="text-rose-500" />
-            </div>
-            <h3 className="text-xl font-black text-white mb-2 uppercase tracking-wide">Purge {deleteConfirm}?</h3>
-            <p className="text-gray-500 text-xs font-medium mb-8 leading-relaxed">This action irrevocably destroys the database row for this asset. It cannot be recovered.</p>
-            <div className="flex gap-4">
-              <button onClick={() => setDeleteConfirm(null)} className="flex-1 py-3.5 rounded-xl bg-[#12121A] text-gray-400 font-black text-xs uppercase tracking-wider border border-white/10 hover:bg-white/5 transition-colors">Abort</button>
-              <button onClick={() => handleDelete(deleteConfirm)} disabled={isProcessing} className="flex-1 py-3.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-black text-xs uppercase tracking-wider shadow-[0_0_15px_rgba(225,29,72,0.4)] disabled:opacity-50 transition-all hover:scale-105">
-                {isProcessing ? 'Purging…' : 'Purge'}
-              </button>
+        <div className="fixed inset-0 z-[9999] bg-black/80 flex items-center justify-center p-4">
+          <div className="bg-[#0A0A0F] border border-white/10 p-6 rounded-2xl w-full max-w-sm text-center">
+            <h3 className="text-lg font-bold text-white mb-2">Delete {deleteConfirm}?</h3>
+            <p className="text-gray-400 text-sm mb-6">This will remove the coin from the user's wallet entirely.</p>
+            <div className="flex gap-3">
+              <button onClick={() => setDeleteConfirm(null)} className="flex-1 py-3 rounded-xl bg-white/5 text-white font-bold text-sm">Cancel</button>
+              <button onClick={() => handleDelete(deleteConfirm)} disabled={isProcessing} className="flex-1 py-3 rounded-xl bg-rose-600 text-white font-bold text-sm">{isProcessing ? 'Deleting...' : 'Delete'}</button>
             </div>
           </div>
         </div>
@@ -364,7 +315,7 @@ function CryptoSubWalletPanel({ userId, userName }: { userId: string; userName: 
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Main Page — Now featuring z-[9999] on its modals too!
+// Main User Details Page
 // ─────────────────────────────────────────────────────────────────────────────
 export default function UserDetailPage() {
   const params = useParams();
@@ -376,9 +327,8 @@ export default function UserDetailPage() {
   const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [formData, setFormData] = useState({
-    full_name: '', email: '', dob: '', ssn: '', role: '',
-    gender: '', phone: '', address: '', country: '', idNumber: '',
-    referred_by_code: '', referred_by_email: ''
+    full_name: '', email: '', dob: '', gender: '', phone: '', 
+    address: '', country: '', idNumber: '', referred_by_code: '', referred_by_email: ''
   });
   const [isModalOpen, setIsModalOpen]   = useState(false);
   const [modalAction, setModalAction]   = useState<'add' | 'subtract'>('add');
@@ -396,13 +346,11 @@ export default function UserDetailPage() {
       setUser(u);
       setFormData({
         full_name: u.full_name || '', email: u.email || '', dob: u.dob || '',
-        ssn: u.ssn || '', gender: u.gender || '', phone: u.phone || '',
-        address: u.address || '', country: u.country || '',
-        idNumber: u.id_number || u.ssn || '', role: u.role || 'user',
-        referred_by_code: u.referred_by_code || '',
-        referred_by_email: u.referred_by_email || 'No Referrer'
+        gender: u.gender || '', phone: u.phone || '', address: u.address || '', 
+        country: u.country || '', idNumber: u.id_number || u.ssn || '', 
+        referred_by_code: u.referred_by_code || '', referred_by_email: u.referred_by_email || 'None'
       });
-    } catch (e) { console.error("Failed to fetch user", e); }
+    } catch (e) { console.error("Failed to load user"); }
     finally { setLoading(false); }
   };
 
@@ -410,7 +358,7 @@ export default function UserDetailPage() {
     try {
       const res = await apiClient.get(`/admin/users/${userId}/transactions`);
       setTransactions(res.data);
-    } catch (e) { console.error("Failed to fetch transactions", e); }
+    } catch (e) {}
   };
 
   const openModal = (action: 'add' | 'subtract') => { setModalAction(action); setAmountInput(''); setTargetWallet('main'); setIsModalOpen(true); };
@@ -420,21 +368,40 @@ export default function UserDetailPage() {
     if (isNaN(val) || val <= 0) return alert("Enter a valid amount");
     setIsProcessing(true);
     try {
-      await apiClient.post(`/admin/users/${userId}/balance`, { amount: val, action: modalAction, wallet_type: targetWallet });
+      await apiClient.post(`/admin/users/${userId}/crypto-holdings`, { 
+        symbol: "USDT", name: "Tether", quantity: val, avg_buy_price: 1.0, 
+        action: modalAction, note: `Admin ${modalAction === 'add' ? 'Added' : 'Removed'} (${targetWallet.toUpperCase()})` 
+      });
       setIsModalOpen(false);
-      const b = { ...user.balances };
-      b[targetWallet] = Math.max(0, b[targetWallet] + (modalAction === 'add' ? val : -val));
-      setUser({ ...user, balances: b });
-      fetchUserTransactions();
-      alert(`Successfully ${modalAction === 'add' ? 'added' : 'subtracted'} $${val.toLocaleString()} to ${targetWallet} wallet.`);
-    } catch (e: any) { alert(e.response?.data?.detail || "Failed to adjust balance"); }
+      fetchUserDetails(); fetchUserTransactions();
+      alert(`Successfully processed ${val} USDT for ${targetWallet}.`);
+    } catch (e: any) { alert("Failed to adjust balance"); }
+    finally { setIsProcessing(false); }
+  };
+
+  const handleMigrateToCrypto = async () => {
+    if (!confirm("Convert old dollar balances into USDT Crypto? This cannot be undone.")) return;
+    setIsProcessing(true);
+    try {
+      const totalFiat = (user.balances.main + user.balances.profit + user.balances.bonus + user.balances.referral);
+      if (totalFiat <= 0) { alert("No old balance to convert."); return; }
+      
+      await apiClient.post(`/admin/users/${userId}/crypto-holdings`, { symbol: "USDT", name: "Tether", quantity: totalFiat, avg_buy_price: 1.0, action: "add", note: "Converted old balance to USDT" });
+      if (user.balances.main > 0) await apiClient.post(`/admin/users/${userId}/balance`, { amount: user.balances.main, action: "subtract", wallet_type: "main" });
+      if (user.balances.profit > 0) await apiClient.post(`/admin/users/${userId}/balance`, { amount: user.balances.profit, action: "subtract", wallet_type: "profit" });
+      if (user.balances.bonus > 0) await apiClient.post(`/admin/users/${userId}/balance`, { amount: user.balances.bonus, action: "subtract", wallet_type: "bonus" });
+      if (user.balances.referral > 0) await apiClient.post(`/admin/users/${userId}/balance`, { amount: user.balances.referral, action: "subtract", wallet_type: "referral" });
+      
+      fetchUserDetails(); fetchUserTransactions();
+      alert("Converted successfully.");
+    } catch (e) { alert("Conversion failed."); }
     finally { setIsProcessing(false); }
   };
 
   const handleKycReview = async (status: 'verified' | 'rejected') => {
-    if (!confirm(`Mark KYC as ${status.toUpperCase()}?`)) return;
+    if (!confirm(`Mark ID Verification as ${status.toUpperCase()}?`)) return;
     try { await apiClient.post(`/admin/users/${userId}/kyc-review`, { status, reason: "Admin review" }); setUser({ ...user, kyc_status: status }); }
-    catch { alert("Failed to update KYC status."); }
+    catch { alert("Failed to update status."); }
   };
 
   const handleToggleSuspend = async () => {
@@ -445,24 +412,24 @@ export default function UserDetailPage() {
   };
 
   const handleDeleteUser = async () => {
-    if (!confirm("🚨 PERMANENTLY DELETE this user?")) return;
+    if (!confirm("🚨 Delete user permanently?")) return;
     try { await apiClient.delete(`/admin/users/${userId}`); router.push('/admin/users'); }
     catch { alert("Failed to delete user."); }
   };
 
   const handleImpersonate = async () => {
-    if (!confirm(`Generate session token for ${formData.email}?`)) return;
+    if (!confirm(`Login to app as ${formData.email}?`)) return;
     try {
       const res = await apiClient.post(`/admin/users/${userId}/impersonate`);
       localStorage.setItem('temp_impersonation_token', res.data.access_token);
       window.open('/dashboard', '_blank');
-    } catch (e: any) { alert(e.response?.data?.detail || "Impersonation failed"); }
+    } catch (e: any) { alert("Login failed"); }
   };
 
   const handleUpdateProfile = async () => {
     setIsSaving(true);
-    try { await apiClient.patch(`/admin/users/${userId}`, formData); alert("Identity Matrix Updated Successfully."); }
-    catch { alert("Failed to update profile."); }
+    try { await apiClient.patch(`/admin/users/${userId}`, formData); alert("Profile saved."); }
+    catch { alert("Failed to save."); }
     finally { setIsSaving(false); }
   };
 
@@ -470,178 +437,166 @@ export default function UserDetailPage() {
   const getImageUrl = (url: string) => { if (!url) return null; return url.startsWith('http') ? url : `${HOST_URL}${url}`; };
 
   if (loading) return (
-    <div className="flex h-[80vh] items-center justify-center">
-      <div className="flex flex-col items-center gap-5">
-        <div className="w-16 h-16 border-4 border-cyan-500/20 border-t-cyan-500 rounded-full animate-spin shadow-[0_0_30px_rgba(6,182,212,0.4)]" />
-        <p className="text-cyan-400 font-mono text-[10px] font-black uppercase tracking-[0.3em] animate-pulse">Decrypting User Matrix...</p>
-      </div>
+    <div className="flex h-screen items-center justify-center bg-[#05050A]">
+      <div className="w-12 h-12 border-4 border-blue-500/20 border-t-blue-500 rounded-full animate-spin" />
     </div>
   );
-  if (!user) return <div className="p-8 text-rose-500 font-black tracking-widest uppercase">User Matrix Not Found.</div>;
+  if (!user) return <div className="p-8 text-white font-bold text-center">User Not Found.</div>;
 
-  const totalEquity = (user.balances?.main||0)+(user.balances?.profit||0)+(user.balances?.bonus||0)+(user.balances?.referral||0);
+  const totalLegacyEquity = (user.balances?.main||0)+(user.balances?.profit||0)+(user.balances?.bonus||0)+(user.balances?.referral||0);
 
   return (
-    <div className="p-6 lg:p-8 max-w-7xl mx-auto relative pb-20 selection:bg-cyan-500/30">
-      <div className="hidden dark:block absolute top-20 left-1/2 -translate-x-1/2 w-[800px] h-[300px] bg-cyan-600/10 blur-[120px] rounded-full pointer-events-none -z-10" />
-
-      {/* HEADER */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-6">
+    <div className="p-4 md:p-6 lg:p-8 max-w-7xl mx-auto pb-20">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4">
         <div>
-          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-gray-400 text-[10px] font-black uppercase tracking-[0.2em] mb-4">ID: {user.id}</div>
-          <h1 className="text-3xl md:text-5xl font-black text-white tracking-tighter drop-shadow-lg">{formData.full_name || 'Anonymous Client'}</h1>
-          <div className="flex items-center gap-3 mt-4">
-            <span className={`px-3 py-1.5 rounded-lg text-[10px] uppercase tracking-widest font-black border ${user.is_active ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30 shadow-[0_0_15px_rgba(16,185,129,0.15)]' : 'bg-rose-500/10 text-rose-400 border-rose-500/30 shadow-[0_0_15px_rgba(244,63,94,0.15)]'}`}>{user.is_active ? 'System Active' : 'System Suspended'}</span>
-            <span className={`px-3 py-1.5 rounded-lg text-[10px] uppercase tracking-widest font-black border ${user.kyc_status === 'verified' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30 shadow-[0_0_15px_rgba(16,185,129,0.15)]' : user.kyc_status === 'pending' ? 'bg-amber-500/10 text-amber-400 border-amber-500/30 shadow-[0_0_15px_rgba(245,158,11,0.15)]' : 'bg-rose-500/10 text-rose-400 border-rose-500/30 shadow-[0_0_15px_rgba(244,63,94,0.15)]'}`}>KYC: {user.kyc_status}</span>
+          <div className="inline-block px-3 py-1 bg-white/5 text-gray-400 text-xs font-bold rounded-lg mb-2">ID: {user.id}</div>
+          <h1 className="text-2xl md:text-4xl font-bold text-white">{formData.full_name || 'No Name'}</h1>
+          <div className="flex flex-wrap gap-2 mt-3">
+            <span className={`px-3 py-1 rounded-md text-xs font-bold border ${user.is_active ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' : 'bg-rose-500/10 text-rose-400 border-rose-500/30'}`}>{user.is_active ? 'Account Active' : 'Blocked'}</span>
+            <span className={`px-3 py-1 rounded-md text-xs font-bold border ${user.kyc_status === 'verified' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' : user.kyc_status === 'pending' ? 'bg-amber-500/10 text-amber-400 border-amber-500/30' : 'bg-rose-500/10 text-rose-400 border-rose-500/30'}`}>ID: {user.kyc_status}</span>
           </div>
         </div>
-        <button onClick={handleImpersonate} className="bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white px-7 py-3.5 rounded-2xl transition-all flex items-center gap-3 text-xs font-black uppercase tracking-widest shadow-[0_0_25px_rgba(6,182,212,0.4)] hover:scale-105 border border-cyan-400/30">
-          <LogIn size={16} /> Impersonate Core
+        <button onClick={handleImpersonate} className="bg-blue-600 hover:bg-blue-500 text-white px-5 py-2.5 rounded-xl font-bold text-sm w-full sm:w-auto">
+          Login as User
         </button>
       </div>
 
-      {/* 4-BALANCE VAULT */}
-      <div className="bg-[#12121A]/80 backdrop-blur-2xl border border-white/5 rounded-[2rem] p-8 shadow-2xl mb-8">
-        <div className="flex justify-between items-center mb-8">
-          <h2 className="text-[10px] font-black text-gray-500 uppercase tracking-[0.2em]">Fiat Liquidity (AUM)</h2>
-          <span className="text-4xl md:text-5xl font-black text-white tracking-tighter drop-shadow-xl">${totalEquity.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+      {/* Legacy Balances (To be deleted later) */}
+      <div className="bg-[#12121A] border border-rose-500/20 rounded-2xl p-5 mb-8">
+        <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-2 mb-4">
+          <h2 className="text-sm font-bold text-rose-400">Old Dollar Balances (Convert to Crypto)</h2>
+          <span className="text-2xl font-bold text-white">${totalLegacyEquity.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
         </div>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-5">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {[
-            { key: 'main',     label: 'Main',     icon: <Wallet size={16} />,    color: 'text-blue-400',    glow: 'shadow-[0_0_20px_rgba(59,130,246,0.1)]' },
-            { key: 'profit',   label: 'Profit',   icon: <TrendingUp size={16} />,color: 'text-emerald-400', glow: 'shadow-[0_0_20px_rgba(16,185,129,0.1)]' },
-            { key: 'bonus',    label: 'Bonus',    icon: <Gift size={16} />,      color: 'text-amber-400',   glow: 'shadow-[0_0_20px_rgba(245,158,11,0.1)]' },
-            { key: 'referral', label: 'Referral', icon: <Users size={16} />,     color: 'text-purple-400',  glow: 'shadow-[0_0_20px_rgba(168,85,247,0.1)]'},
+            { key: 'main', label: 'Main', icon: <Wallet size={16} /> },
+            { key: 'profit', label: 'Profits', icon: <TrendingUp size={16} /> },
+            { key: 'bonus', label: 'Bonuses', icon: <Gift size={16} /> },
+            { key: 'referral', label: 'Referrals', icon: <Users size={16} /> },
           ].map(b => (
-            <div key={b.key} className={`bg-[#05050A] p-5 rounded-2xl border border-white/5 ${b.glow}`}>
-              <div className={`flex items-center gap-2.5 mb-3 ${b.color}`}>{b.icon}<span className="text-[10px] font-black uppercase tracking-widest">{b.label}</span></div>
-              <div className="text-2xl font-black text-white tracking-tight">${(user.balances?.[b.key]||0).toLocaleString(undefined,{minimumFractionDigits:2})}</div>
+            <div key={b.key} className="bg-[#05050A] p-4 rounded-xl border border-white/5">
+              <div className="flex items-center gap-2 text-gray-400 mb-2">{b.icon}<span className="text-xs font-bold">{b.label}</span></div>
+              <div className="text-lg font-bold text-white">${(user.balances?.[b.key]||0).toLocaleString(undefined,{minimumFractionDigits:2})}</div>
             </div>
           ))}
         </div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-5 mb-10">
-        <ActionButton icon={<PlusCircle size={20}/>} label="Credit"  color="emerald" onClick={()=>openModal('add')}/>
-        <ActionButton icon={<MinusCircle size={20}/>} label="Debit" color="rose"    onClick={()=>openModal('subtract')}/>
-        <ActionButton icon={<Bell size={20}/>}        label="Ping"     color="blue"    onClick={()=>router.push('/admin/support')}/>
-        <ActionButton icon={<UserX size={20}/>}       label={user.is_active?"Suspend":"Restore"} color={user.is_active?"amber":"emerald"} onClick={handleToggleSuspend}/>
-        <ActionButton icon={<Trash2 size={20}/>}      label="Purge"     color="rose"    onClick={handleDeleteUser}/>
+      {/* Action Buttons */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-8">
+        <ActionButton icon={<Gift size={18}/>} label="Add USDT" color="emerald" onClick={()=>openModal('add')}/>
+        <ActionButton icon={<MinusCircle size={18}/>} label="Remove USDT" color="rose" onClick={()=>openModal('subtract')}/>
+        <ActionButton icon={<Replace size={18}/>} label="Convert to Crypto" color="blue" onClick={handleMigrateToCrypto}/>
+        <ActionButton icon={<Bell size={18}/>} label="Message" color="amber" onClick={()=>router.push('/admin/support')}/>
+        <ActionButton icon={<UserX size={18}/>} label={user.is_active?"Block":"Unblock"} color={user.is_active?"amber":"emerald"} onClick={handleToggleSuspend}/>
+        <ActionButton icon={<Trash2 size={18}/>} label="Delete User" color="rose" onClick={handleDeleteUser}/>
       </div>
 
       <CryptoSubWalletPanel userId={userId} userName={formData.full_name || 'this user'} />
 
-      {/* IDENTITY MATRIX + KYC */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
-        <div className="lg:col-span-2 bg-[#12121A]/80 backdrop-blur-2xl border border-white/5 rounded-[2rem] p-8 shadow-2xl">
-          <h2 className="text-xl font-black text-white mb-8 flex items-center gap-3 tracking-tight">
-            <div className="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/30 flex items-center justify-center shadow-[0_0_15px_rgba(59,130,246,0.2)]"><ShieldCheck size={20} className="text-blue-400"/></div>
-            Identity Matrix
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-10">
-            <InputField label="Full Legal Name"       name="full_name" value={formData.full_name} onChange={handleInputChange}/>
-            <InputField label="Email Address"         name="email"     value={formData.email}     onChange={handleInputChange} type="email"/>
-            <InputField label="Date of Birth"         name="dob"       value={formData.dob}       onChange={handleInputChange} placeholder="YYYY-MM-DD"/>
-            <InputField label="Gender"                name="gender"    value={formData.gender}    onChange={handleInputChange}/>
-            <InputField label="Phone Number"          name="phone"     value={formData.phone}     onChange={handleInputChange} icon={<Phone size={16}/>}/>
-            <InputField label="Country of Residence"  name="country"   value={formData.country}   onChange={handleInputChange} icon={<MapPin size={16}/>}/>
-            <div className="md:col-span-2"><InputField label="Residential Address" name="address" value={formData.address} onChange={handleInputChange}/></div>
-            <div className="md:col-span-2 p-5 bg-[#05050A] rounded-2xl border border-white/5 shadow-inner">
-              <label className="block text-gray-500 text-[10px] font-black uppercase tracking-widest mb-3 ml-1">Regulatory ID (SSN, BVN, NIN…)</label>
-              <div className="flex items-center gap-4"><Hash size={20} className="text-gray-500"/>
-                <input type="text" name="idNumber" value={formData.idNumber} onChange={handleInputChange} className="w-full bg-transparent text-white font-mono font-black text-xl outline-none placeholder:text-gray-700" placeholder="NULL"/>
-              </div>
+      {/* User Details & ID */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+        <div className="lg:col-span-2 bg-[#12121A] border border-white/5 rounded-2xl p-5 md:p-6">
+          <h2 className="text-lg font-bold text-white mb-6">User Profile</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+            <InputField label="Full Name" name="full_name" value={formData.full_name} onChange={handleInputChange}/>
+            <InputField label="Email Address" name="email" value={formData.email} onChange={handleInputChange} type="email"/>
+            <InputField label="Date of Birth" name="dob" value={formData.dob} onChange={handleInputChange} placeholder="YYYY-MM-DD"/>
+            <InputField label="Gender" name="gender" value={formData.gender} onChange={handleInputChange}/>
+            <InputField label="Phone Number" name="phone" value={formData.phone} onChange={handleInputChange} icon={<Phone size={14}/>}/>
+            <InputField label="Country" name="country" value={formData.country} onChange={handleInputChange} icon={<MapPin size={14}/>}/>
+            <div className="sm:col-span-2"><InputField label="Home Address" name="address" value={formData.address} onChange={handleInputChange}/></div>
+            
+            <div className="sm:col-span-2 p-4 bg-[#05050A] rounded-xl border border-white/5">
+              <label className="block text-gray-500 text-xs font-bold mb-2">ID Number (SSN, NIN, etc.)</label>
+              <input type="text" name="idNumber" value={formData.idNumber} onChange={handleInputChange} className="w-full bg-transparent text-white font-bold text-lg outline-none" placeholder="Not provided"/>
             </div>
-            <div className="md:col-span-2 p-6 bg-purple-900/10 rounded-2xl border border-purple-500/20 shadow-[inset_0_0_30px_rgba(168,85,247,0.05)]">
-              <div className="flex flex-col md:flex-row gap-6">
+            
+            <div className="sm:col-span-2 p-4 bg-purple-900/20 rounded-xl border border-purple-500/20">
+              <div className="flex flex-col sm:flex-row gap-4">
                 <div className="flex-1">
-                  <label className="block text-purple-400 text-[10px] font-black uppercase tracking-widest mb-3 ml-1">Referral Code</label>
-                  <div className="text-white font-mono font-black text-2xl ml-1 tracking-wider">{user.referral_code||'NULL'}</div>
+                  <label className="block text-purple-400 text-xs font-bold mb-2">Their Invite Code</label>
+                  <div className="text-white font-bold text-lg">{user.referral_code||'None'}</div>
                 </div>
                 <div className="flex-1">
-                  <label className="block text-purple-400 text-[10px] font-black uppercase tracking-widest mb-3 ml-1">Referrer Override</label>
-                  <input type="text" name="referred_by_code" value={formData.referred_by_code} onChange={handleInputChange} className="w-full bg-[#05050A] border border-purple-500/30 text-white rounded-xl p-3.5 outline-none focus:border-purple-400 focus:ring-1 focus:ring-purple-400/50 font-mono text-sm tracking-wider placeholder:text-gray-700 transition-all" placeholder="ENTER_CODE"/>
-                  <p className="text-[10px] text-gray-500 mt-3 ml-1 uppercase tracking-widest font-bold">Uplink: <span className="text-gray-300">{formData.referred_by_email}</span></p>
+                  <label className="block text-purple-400 text-xs font-bold mb-2">Referred By</label>
+                  <input type="text" name="referred_by_code" value={formData.referred_by_code} onChange={handleInputChange} className="w-full bg-[#05050A] border border-purple-500/30 text-white rounded-lg p-2 text-sm outline-none" placeholder="Code"/>
+                  <p className="text-xs text-gray-500 mt-2">Person: {formData.referred_by_email}</p>
                 </div>
               </div>
             </div>
           </div>
-          <button onClick={handleUpdateProfile} disabled={isSaving} className="w-full bg-cyan-600 hover:bg-cyan-500 text-white font-black text-xs uppercase tracking-[0.2em] py-5 rounded-2xl transition-all shadow-[0_0_30px_rgba(6,182,212,0.3)] disabled:opacity-50 hover:scale-[1.01]">
-            {isSaving ? 'Encrypting...' : 'Update Matrix Settings'}
+          <button onClick={handleUpdateProfile} disabled={isSaving} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-xl transition-all">
+            {isSaving ? 'Saving...' : 'Save Profile Changes'}
           </button>
         </div>
 
-        <div className="bg-[#12121A]/80 backdrop-blur-2xl border border-white/5 rounded-[2rem] p-8 shadow-2xl h-fit">
-          <h2 className="text-xl font-black text-white mb-8 flex items-center gap-3 tracking-tight">
-            <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center shadow-[0_0_15px_rgba(245,158,11,0.2)]"><ShieldAlert size={20} className="text-amber-400"/></div>
-            KYC Vault
-          </h2>
+        <div className="bg-[#12121A] border border-white/5 rounded-2xl p-5 md:p-6 h-fit">
+          <h2 className="text-lg font-bold text-white mb-6">ID Verification</h2>
           <div className="space-y-6">
             {['govt_id_url','id_card_url'].map((field,i)=>(
               <div key={field}>
-                <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-3">{i===0?'Government ID (Passport/License)':'Standard ID Card (Front)'}</p>
+                <p className="text-xs font-bold text-gray-500 mb-2">{i===0?'Government ID':'Selfie / Other ID'}</p>
                 {user[field] ? (
-                  <a href={getImageUrl(user[field])||'#'} target="_blank" rel="noopener noreferrer" className="relative group rounded-2xl overflow-hidden border border-white/10 bg-[#05050A] aspect-video flex items-center justify-center block">
-                    <FileImage className="text-gray-600 absolute group-hover:scale-110 transition-transform" size={40}/>
-                    <img src={getImageUrl(user[field])||''} alt="ID" className="w-full h-full object-cover opacity-40 group-hover:opacity-100 transition-opacity relative z-10"/>
+                  <a href={getImageUrl(user[field])||'#'} target="_blank" rel="noopener noreferrer" className="block rounded-xl overflow-hidden border border-white/10 bg-[#05050A] aspect-video relative">
+                    <img src={getImageUrl(user[field])||''} alt="ID" className="w-full h-full object-cover opacity-60 hover:opacity-100 transition-opacity" />
                   </a>
                 ) : (
-                  <div className="rounded-2xl border border-dashed border-white/10 bg-[#05050A] p-8 text-center text-xs font-black uppercase tracking-widest text-gray-600">NULL RECORD</div>
+                  <div className="rounded-xl border border-dashed border-white/10 bg-[#05050A] p-6 text-center text-xs font-bold text-gray-600">No file uploaded</div>
                 )}
               </div>
             ))}
-            {user.kyc_status==='pending'&&(
-              <div className="flex gap-4 pt-6 border-t border-white/5 mt-8">
-                <button onClick={()=>handleKycReview('verified')} className="flex-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shadow-[0_0_15px_rgba(16,185,129,0.1)] py-4 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all">Verify</button>
-                <button onClick={()=>handleKycReview('rejected')} className="flex-1 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 shadow-[0_0_15px_rgba(244,63,94,0.1)] py-4 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all">Reject</button>
+            {user.kyc_status==='pending' && (
+              <div className="flex gap-3 pt-4 border-t border-white/5 mt-4">
+                <button onClick={()=>handleKycReview('verified')} className="flex-1 bg-emerald-600/20 text-emerald-400 py-3 rounded-xl text-xs font-bold">Approve</button>
+                <button onClick={()=>handleKycReview('rejected')} className="flex-1 bg-rose-600/20 text-rose-400 py-3 rounded-xl text-xs font-bold">Reject</button>
               </div>
             )}
           </div>
         </div>
       </div>
 
-      {/* LEDGER */}
-      <div className="bg-[#12121A]/80 backdrop-blur-2xl border border-white/5 rounded-[2rem] p-8 shadow-2xl overflow-hidden">
-        <h2 className="text-xl font-black text-white mb-8 flex items-center gap-3 tracking-tight">
-          <div className="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/30 flex items-center justify-center shadow-[0_0_15px_rgba(59,130,246,0.2)]"><Activity size={20} className="text-blue-400"/></div>
-          Ledger Terminal
-        </h2>
+      {/* TRANSACTION HISTORY */}
+      <div className="bg-[#12121A] border border-white/5 rounded-2xl p-5 md:p-6 overflow-hidden">
+        <h2 className="text-lg font-bold text-white mb-6">Transaction History</h2>
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse whitespace-nowrap">
-            <thead className="bg-white/[0.02] text-[10px] uppercase tracking-widest text-gray-500 font-black border-b border-white/5">
+          <table className="w-full text-left border-collapse whitespace-nowrap min-w-[600px]">
+            <thead className="bg-white/5 text-xs text-gray-400 border-b border-white/5">
               <tr>
-                <th className="p-5 pl-6">Operation</th><th className="p-5">Routing</th>
-                <th className="p-5">Hash</th><th className="p-5">Value</th>
-                <th className="p-5">Status</th><th className="p-5 text-right pr-6">Timestamp</th>
+                <th className="p-3 pl-4">Type</th>
+                <th className="p-3">Wallet</th>
+                <th className="p-3">Ref ID</th>
+                <th className="p-3">Amount</th>
+                <th className="p-3">Status</th>
+                <th className="p-3 text-right pr-4">Date</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-white/5">
-              {transactions.length===0 ? (
-                <tr><td colSpan={6} className="p-12 text-center text-gray-600 font-black tracking-widest uppercase text-xs">Ledger Empty</td></tr>
+              {transactions.length === 0 ? (
+                <tr><td colSpan={6} className="p-8 text-center text-gray-500 text-sm">No transactions yet.</td></tr>
               ) : transactions.map((tx:any)=>{
-                const isCredit = tx.transaction_type==='deposit'||tx.transaction_type==='crypto_buy';
+                const isCredit = tx.transaction_type==='deposit'||tx.transaction_type==='crypto_buy'||tx.transaction_type==='bonus'||tx.transaction_type==='profit';
                 return (
-                  <tr key={tx.id} className="hover:bg-white/[0.02] transition-colors group">
-                    <td className="p-5 pl-6">
-                      <div className="flex items-center gap-4">
-                        <div className={`p-2.5 rounded-xl border ${isCredit?'bg-emerald-500/10 text-emerald-400 border-emerald-500/20':'bg-amber-500/10 text-amber-400 border-amber-500/20'}`}>
-                          {isCredit?<ArrowDownToLine size={16}/>:<ArrowUpFromLine size={16}/>}
+                  <tr key={tx.id} className="hover:bg-white/5 transition-colors">
+                    <td className="p-3 pl-4">
+                      <div className="flex items-center gap-3">
+                        <div className={`p-2 rounded-lg ${isCredit?'bg-emerald-500/20 text-emerald-400':'bg-rose-500/20 text-rose-400'}`}>
+                          {isCredit?<ArrowDownToLine size={14}/>:<ArrowUpFromLine size={14}/>}
                         </div>
                         <div>
-                          <span className="text-white font-black text-sm uppercase tracking-wide">{tx.transaction_type?.replace(/_/g,' ')}</span>
-                          {tx.destination_details&&<p className="text-gray-500 text-[10px] max-w-[250px] truncate mt-1 font-bold">{tx.destination_details}</p>}
+                          <span className="text-white font-bold text-sm capitalize">{tx.transaction_type?.replace(/_/g,' ')}</span>
+                          {tx.destination_details&&<p className="text-gray-500 text-xs max-w-[200px] truncate">{tx.destination_details}</p>}
                         </div>
                       </div>
                     </td>
-                    <td className="p-5">
-                      <span className={`px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-widest border ${tx.wallet_type==='profit'?'bg-emerald-500/10 text-emerald-400 border-emerald-500/20':tx.wallet_type==='bonus'?'bg-amber-500/10 text-amber-400 border-amber-500/20':tx.wallet_type==='referral'?'bg-purple-500/10 text-purple-400 border-purple-500/20':'bg-blue-500/10 text-blue-400 border-blue-500/20'}`}>{tx.wallet_type||'main'}</span>
+                    <td className="p-3 text-xs font-bold text-gray-400 uppercase">{tx.wallet_type||'main'}</td>
+                    <td className="p-3 text-gray-500 text-xs">{tx.reference}</td>
+                    <td className="p-3 text-white text-sm font-bold">{isCredit?'+':'-'}{Math.abs(parseFloat(tx.amount))}</td>
+                    <td className="p-3">
+                      <span className={`px-2 py-1 rounded text-xs font-bold ${tx.status==='completed'||tx.status==='approved'?'bg-emerald-500/20 text-emerald-400':tx.status==='pending'?'bg-amber-500/20 text-amber-400':'bg-rose-500/20 text-rose-400'}`}>{tx.status}</span>
                     </td>
-                    <td className="p-5 text-gray-500 text-xs font-mono font-medium">{tx.reference}</td>
-                    <td className="p-5 text-white font-mono text-sm font-black tracking-wide">{isCredit?'+':'-'}${Math.abs(parseFloat(tx.amount)).toLocaleString(undefined,{minimumFractionDigits:2})}</td>
-                    <td className="p-5">
-                      <span className={`px-3 py-1.5 rounded-lg text-[10px] uppercase tracking-widest font-black border ${tx.status==='completed'||tx.status==='approved'?'bg-emerald-500/10 text-emerald-400 border-emerald-500/30':tx.status==='pending'?'bg-amber-500/10 text-amber-400 border-amber-500/30':'bg-rose-500/10 text-rose-400 border-rose-500/30'}`}>{tx.status}</span>
-                    </td>
-                    <td className="p-5 pr-6 text-right text-gray-500 text-[10px] font-mono font-bold uppercase tracking-wider">{new Date(tx.created_at).toLocaleString()}</td>
+                    <td className="p-3 pr-4 text-right text-gray-500 text-xs">{new Date(tx.created_at).toLocaleDateString()}</td>
                   </tr>
                 );
               })}
@@ -650,32 +605,32 @@ export default function UserDetailPage() {
         </div>
       </div>
 
-      {/* Z-[9999] FIAT FUNDS MODAL */}
+      {/* Rewards USDT Modal */}
       {isModalOpen&&(
-        <div className="fixed inset-0 z-[9999] bg-black/80 backdrop-blur-md flex items-end sm:items-center justify-center p-0 sm:p-4">
-          <div className="bg-[#0A0A0F] border border-white/10 p-8 rounded-t-3xl sm:rounded-[2rem] w-full max-w-md shadow-[0_0_50px_rgba(0,0,0,0.5)] relative">
-            <button onClick={()=>setIsModalOpen(false)} className="absolute top-6 right-6 text-gray-500 hover:text-white bg-white/5 p-2.5 rounded-full border border-white/5 transition-colors"><X size={20}/></button>
-            <h2 className="text-2xl font-black text-white mb-2 uppercase tracking-wide">{modalAction} Liquidity</h2>
-            <p className="text-gray-500 text-xs font-bold uppercase tracking-widest mb-8">Target: <span className="text-white">{formData.full_name}'s Vault</span></p>
+        <div className="fixed inset-0 z-[9999] bg-black/80 flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <div className="bg-[#0A0A0F] border border-white/10 p-6 rounded-t-2xl sm:rounded-2xl w-full max-w-sm">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-lg font-bold text-white capitalize">{modalAction === 'add' ? 'Add USDT Reward' : 'Remove USDT'}</h2>
+              <button onClick={()=>setIsModalOpen(false)} className="text-gray-500 bg-white/5 p-2 rounded-full"><X size={16}/></button>
+            </div>
             
-            <div className="mb-6">
-              <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-3">Routing Sub-Vault</label>
-              <select value={targetWallet} onChange={e=>setTargetWallet(e.target.value as any)} className="w-full bg-[#12121A] border border-white/10 text-white rounded-xl p-4 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/50 font-black uppercase tracking-wider appearance-none transition-all">
-                <option value="main">Main Core</option><option value="profit">Profit Yield</option>
-                <option value="bonus">Bonus Stash</option><option value="referral">Referral Node</option>
+            <div className="mb-4">
+              <label className="block text-xs font-bold text-gray-400 mb-2">Category</label>
+              <select value={targetWallet} onChange={e=>setTargetWallet(e.target.value as any)} className="w-full bg-[#12121A] border border-white/10 text-white rounded-xl p-3 outline-none text-sm">
+                <option value="main">Standard Deposit</option>
+                <option value="profit">Trading Profits</option>
+                <option value="bonus">Sign-up / Promo Bonus</option>
+                <option value="referral">Referral Earnings</option>
               </select>
             </div>
             
-            <div className="mb-10">
-              <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-3">Volume (USD)</label>
-              <div className="relative">
-                <span className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-500 text-2xl font-mono font-black">$</span>
-                <input type="number" className="w-full bg-[#12121A] border border-white/10 text-white text-3xl font-black rounded-2xl py-5 pl-12 pr-6 focus:border-blue-500 focus:ring-1 focus:ring-blue-500/50 outline-none font-mono transition-all placeholder:text-gray-700" placeholder="0.00" value={amountInput} onChange={e=>setAmountInput(e.target.value)}/>
-              </div>
+            <div className="mb-6">
+              <label className="block text-xs font-bold text-gray-400 mb-2">Amount (USDT)</label>
+              <input type="number" className="w-full bg-[#12121A] border border-white/10 text-white text-lg font-bold rounded-xl p-3 outline-none focus:border-emerald-500" placeholder="0.00" value={amountInput} onChange={e=>setAmountInput(e.target.value)}/>
             </div>
             
-            <button onClick={handleBalanceAdjust} disabled={isProcessing||!amountInput} className={`w-full py-5 rounded-xl font-black text-xs uppercase tracking-[0.2em] text-white transition-all ${modalAction==='add'?'bg-emerald-600 hover:bg-emerald-500 shadow-[0_0_25px_rgba(16,185,129,0.4)]':'bg-rose-600 hover:bg-rose-500 shadow-[0_0_25px_rgba(244,63,94,0.4)]'} disabled:opacity-50 hover:scale-[1.02]`}>
-              {isProcessing?'Encrypting...':`Execute ${modalAction==='add'?'Credit':'Debit'}`}
+            <button onClick={handleBalanceAdjust} disabled={isProcessing||!amountInput} className={`w-full py-3 rounded-xl font-bold text-sm text-white ${modalAction==='add'?'bg-emerald-600':'bg-rose-600'} disabled:opacity-50`}>
+              {isProcessing?'Processing...':`Confirm`}
             </button>
           </div>
         </div>
@@ -686,21 +641,21 @@ export default function UserDetailPage() {
 
 function ActionButton({icon,label,color,onClick}:{icon:React.ReactNode;label:string;color:'emerald'|'rose'|'blue'|'amber';onClick:()=>void}) {
   const m={
-    emerald:'bg-emerald-500/10 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20 shadow-[0_0_15px_rgba(16,185,129,0.1)]',
-    rose:'bg-rose-500/10 text-rose-400 border-rose-500/30 hover:bg-rose-500/20 shadow-[0_0_15px_rgba(244,63,94,0.1)]',
-    blue:'bg-blue-500/10 text-blue-400 border-blue-500/30 hover:bg-blue-500/20 shadow-[0_0_15px_rgba(59,130,246,0.1)]',
-    amber:'bg-amber-500/10 text-amber-400 border-amber-500/30 hover:bg-amber-500/20 shadow-[0_0_15px_rgba(245,158,11,0.1)]'
+    emerald:'bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 border-emerald-500/30',
+    rose:'bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 border-rose-500/30',
+    blue:'bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 border-blue-500/30',
+    amber:'bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 border-amber-500/30'
   };
-  return <button onClick={onClick} className={`flex flex-col items-center justify-center gap-3 p-5 rounded-[1.5rem] border transition-all hover:-translate-y-1 ${m[color]}`}>{icon}<span className="text-[10px] font-black uppercase tracking-[0.1em] text-center">{label}</span></button>;
+  return <button onClick={onClick} className={`flex flex-col items-center justify-center gap-2 p-3 sm:p-4 rounded-xl border transition-all ${m[color]}`}>{icon}<span className="text-xs font-bold text-center">{label}</span></button>;
 }
 
 function InputField({label,name,value,onChange,type='text',placeholder,icon}:any) {
   return (
     <div>
-      <label className="block text-gray-500 text-[10px] font-black uppercase tracking-widest mb-3 ml-1">{label}</label>
+      <label className="block text-gray-400 text-xs font-bold mb-2">{label}</label>
       <div className="relative">
-        {icon&&<div className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500">{icon}</div>}
-        <input type={type} name={name} value={value} onChange={onChange} className={`w-full bg-[#05050A] border border-white/5 text-white rounded-xl p-4 focus:border-blue-500 focus:ring-1 focus:ring-blue-500/50 outline-none font-medium transition-all placeholder:text-gray-700 ${icon?'pl-11':''}`} placeholder={placeholder}/>
+        {icon&&<div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">{icon}</div>}
+        <input type={type} name={name} value={value} onChange={onChange} className={`w-full bg-[#05050A] border border-white/5 text-white rounded-lg p-3 text-sm focus:border-blue-500 outline-none ${icon?'pl-9':''}`} placeholder={placeholder}/>
       </div>
     </div>
   );
