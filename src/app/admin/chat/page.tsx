@@ -212,7 +212,8 @@ export default function AdminChatPanel() {
 
       socket.onerror = (e) => console.error("[WS Admin] Error:", e);
     };
-
+    
+    
     connect();
     loadChatList();
     const listRefresh = setInterval(loadChatList, 60_000);
