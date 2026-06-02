@@ -17,6 +17,7 @@ interface Order {
   wallet_id: string;
   amount: number;
   transaction_type: string;
+  wallet_type: string; // 🚨 Added to interface
   status: string;
   reference: string;
   proof_url: string | null;
@@ -41,6 +42,28 @@ export default function ManageOrdersPage() {
       return url; // It's Cloudinary, return exactly as is!
     }
     return `${HOST_URL}${url}`; // It's legacy, prepend the backend host.
+  };
+
+  // 🚨 NEW HELPER: Smartly extracts the exact coin/currency from the Web3 Ledger
+  const getCurrency = (order: Order) => {
+    if (!order) return 'USD';
+    const wt = (order.wallet_type || '').toUpperCase();
+    
+    // Check if the backend explicitly passed the coin symbol
+    const knownCoins = ['USDT', 'BTC', 'ETH', 'USDC', 'SOL', 'BNB', 'XRP', 'ADA', 'DOGE', 'LTC'];
+    if (knownCoins.includes(wt)) return wt;
+
+    // Check if it's logged in the destination details (Fallback for withdrawals)
+    if (order.destination_details) {
+      const dest = order.destination_details.toUpperCase();
+      const debitMatch = dest.match(/NATIVE DEBIT: [\d\.]+ ([A-Z]+)/);
+      if (debitMatch && debitMatch[1]) return debitMatch[1];
+      
+      const depositMatch = dest.match(/NATIVE ([A-Z]+) DEPOSIT/);
+      if (depositMatch && depositMatch[1]) return depositMatch[1];
+    }
+
+    return wt === 'MAIN' ? 'USD' : wt || 'USD';
   };
 
   const fetchOrders = async () => {
@@ -127,8 +150,12 @@ export default function ManageOrdersPage() {
             orders.map((order) => {
               const isDeposit = order.transaction_type.toLowerCase() === 'deposit';
               
-              // 🚨 Calculate the safe image URL once per order
               const safeImageUrl = getImageUrl(order.proof_url);
+              
+              // 🚨 Calculate the exact currency formatting
+              const currency = getCurrency(order);
+              const isFiat = currency === 'USD';
+              const displayPrefix = isFiat ? '$' : '';
               
               return (
                 <div key={order.id} className="bg-white dark:bg-[#0a0a0f]/80 backdrop-blur-xl border border-gray-200 dark:border-white/5 rounded-3xl p-6 shadow-xl dark:shadow-2xl flex flex-col md:flex-row gap-6 transition-all hover:border-blue-200 dark:hover:border-white/10 group">
@@ -143,7 +170,7 @@ export default function ManageOrdersPage() {
                                   : 'bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-500/20'
                       }`}>
                         {isDeposit ? <ArrowDownToLine size={14} /> : <ArrowUpFromLine size={14} />}
-                        {order.transaction_type}
+                        {order.transaction_type} • {currency}
                       </div>
                       <span className="text-xs font-bold text-gray-500 uppercase tracking-wider flex items-center gap-1.5">
                         <Clock size={12} />
@@ -153,8 +180,12 @@ export default function ManageOrdersPage() {
 
                     {/* AMOUNT & REF */}
                     <div className="mb-4">
-                      <h3 className="text-4xl font-black text-gray-900 dark:text-white font-mono tracking-tight">
-                        ${order.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      <h3 className="text-4xl font-black text-gray-900 dark:text-white font-mono tracking-tight flex items-baseline gap-2">
+                        {displayPrefix}{Math.abs(order.amount).toLocaleString(undefined, { 
+                          minimumFractionDigits: 2, 
+                          maximumFractionDigits: isFiat ? 2 : 6 
+                        })}
+                        <span className="text-xl text-gray-500 font-bold">{currency}</span>
                       </h3>
                       <p className="text-xs text-gray-500 font-mono mt-2 flex items-center gap-2">
                         <span className="uppercase tracking-widest font-bold">REF:</span> {order.reference}
@@ -234,13 +265,11 @@ export default function ManageOrdersPage() {
                       <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2 ml-1">Payment Proof</p>
                       {order.proof_url ? (
                         <div 
-                          // 🚨 FIXED: Now uses the safeImageUrl
                           onClick={() => window.open(safeImageUrl, '_blank')}
                           className="relative rounded-2xl overflow-hidden border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-[#05050a] flex-1 min-h-[200px] flex items-center justify-center cursor-pointer group/img transition-colors"
                         >
                           <FileImage className="text-gray-400 dark:text-gray-600 absolute" size={32} />
                           <img 
-                            // 🚨 FIXED: Now uses the safeImageUrl
                             src={safeImageUrl} 
                             alt="Payment Proof" 
                             className="w-full h-full object-cover opacity-60 group-hover/img:opacity-100 group-hover/img:scale-105 transition-all duration-500 relative z-10"

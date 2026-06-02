@@ -417,13 +417,22 @@ export default function UserDetailPage() {
     catch { alert("Failed to delete user."); }
   };
 
-  const handleImpersonate = async () => {
+const handleImpersonate = async () => {
     if (!confirm(`Login to app as ${formData.email}?`)) return;
     try {
       const res = await apiClient.post(`/admin/users/${userId}/impersonate`);
+      
+      // OPTION 1: If they share the exact same domain, this works.
       localStorage.setItem('temp_impersonation_token', res.data.access_token);
-      window.open('/dashboard', '_blank');
-    } catch (e: any) { alert("Login failed"); }
+      
+      // OPTION 2 (Recommended for cross-domain): Pass token securely via URL parameter
+      // window.open(`https://app.dunexmarkets.com/dashboard?token=${res.data.access_token}`, '_blank');
+
+      // 🚨 FIX: Added https:// to force an external domain redirect instead of a relative path
+      window.open('https://app.dunexmarkets.com', '_blank');
+    } catch (e: any) { 
+      alert("Login failed"); 
+    }
   };
 
   const handleUpdateProfile = async () => {
@@ -448,13 +457,21 @@ export default function UserDetailPage() {
   return (
     <div className="p-4 md:p-6 lg:p-8 max-w-7xl mx-auto pb-20">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4">
+   <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4">
         <div>
-          <div className="inline-block px-3 py-1 bg-white/5 text-gray-400 text-xs font-bold rounded-lg mb-2">ID: {user.id}</div>
-          <h1 className="text-2xl md:text-4xl font-bold text-white">{formData.full_name || 'No Name'}</h1>
+          <div className="inline-block px-3 py-1 bg-white/5 text-gray-400 text-xs font-bold rounded-lg mb-2">
+            ID: {user.id}
+          </div>
+          <h1 className="text-2xl md:text-4xl font-bold text-white">
+            {formData.full_name || 'No Name'}
+          </h1>
           <div className="flex flex-wrap gap-2 mt-3">
-            <span className={`px-3 py-1 rounded-md text-xs font-bold border ${user.is_active ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' : 'bg-rose-500/10 text-rose-400 border-rose-500/30'}`}>{user.is_active ? 'Account Active' : 'Blocked'}</span>
-            <span className={`px-3 py-1 rounded-md text-xs font-bold border ${user.kyc_status === 'verified' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' : user.kyc_status === 'pending' ? 'bg-amber-500/10 text-amber-400 border-amber-500/30' : 'bg-rose-500/10 text-rose-400 border-rose-500/30'}`}>ID: {user.kyc_status}</span>
+            <span className={`px-3 py-1 rounded-md text-xs font-bold border ${user.is_active ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' : 'bg-rose-500/10 text-rose-400 border-rose-500/30'}`}>
+              {user.is_active ? 'Account Active' : 'Blocked'}
+            </span>
+            <span className={`px-3 py-1 rounded-md text-xs font-bold border ${user.kyc_status === 'verified' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' : user.kyc_status === 'pending' ? 'bg-amber-500/10 text-amber-400 border-amber-500/30' : 'bg-rose-500/10 text-rose-400 border-rose-500/30'}`}>
+              ID: {user.kyc_status}
+            </span>
           </div>
         </div>
         <button onClick={handleImpersonate} className="bg-blue-600 hover:bg-blue-500 text-white px-5 py-2.5 rounded-xl font-bold text-sm w-full sm:w-auto">
