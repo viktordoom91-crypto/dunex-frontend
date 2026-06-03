@@ -271,14 +271,6 @@ export default function DunexLandingPage() {
 >
  Download For Android
 </a>
-                <div className="bg-gradient-to-br from-blue-500 to-cyan-400 text-white p-3 rounded-xl group-hover:scale-110 transition-transform">
-                  <Smartphone size={24} />
-                </div>
-                <div className="text-left pr-4">
-                  <p className="text-xs text-gray-500 font-semibold uppercase tracking-widest">Download For</p>
-                  <p className="text-lg font-black text-white">Android Phones</p>
-                </div>
-              </a>
             </div>
 
             <div className="flex flex-col sm:flex-row items-center gap-4 mt-5 justify-center lg:justify-start text-xs text-gray-600">
