@@ -264,11 +264,11 @@ export default function DunexLandingPage() {
                 </div>
               </button>
 
-              <a
-                href="/Dunex-markets v2.apk"
-                download
-                className="group relative flex items-center gap-4 bg-[#0e0e1a] border border-gray-800 p-4 rounded-2xl hover:border-cyan-500/60 hover:bg-[#131323] transition-all w-full sm:w-auto shadow-lg"
-              >
+             <a 
+  href="https://drive.google.com/uc?export=download&id=1C72PTS9g3tqfI400_yDAEYTmbZ3_27r-" 
+  download
+  className="bg-blue-600 hover:bg-blue-500 text-white px-5 py-3 rounded-xl font-bold flex items-center justify-center gap-2"
+>
                 <div className="bg-gradient-to-br from-blue-500 to-cyan-400 text-white p-3 rounded-xl group-hover:scale-110 transition-transform">
                   <Smartphone size={24} />
                 </div>
