@@ -264,11 +264,13 @@ export default function DunexLandingPage() {
                 </div>
               </button>
 
-             <a 
-  href="https://drive.google.com/uc?export=download&id=1C72PTS9g3tqfI400_yDAEYTmbZ3_27r-" 
+        <a 
+  href="https://drive.google.com/uc?export=download&id=1G3H0JIwvD4pguER-PNeYw-IjKknSqXyd" 
   download
   className="bg-blue-600 hover:bg-blue-500 text-white px-5 py-3 rounded-xl font-bold flex items-center justify-center gap-2"
 >
+ Download For Android
+</a>
                 <div className="bg-gradient-to-br from-blue-500 to-cyan-400 text-white p-3 rounded-xl group-hover:scale-110 transition-transform">
                   <Smartphone size={24} />
                 </div>
